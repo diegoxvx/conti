@@ -589,7 +589,10 @@ const DEFAULTS={
        conti:[{n:'Necessità',p:60},{n:'Svago',p:10},{n:'Formazione',p:10},{n:'Libertà Finanziaria',p:10},{n:'Spese a Lungo Termine',p:10}]},
   fe:{saldo:0,mesi:6,spesa:1500,vers:200},
   pac:{cap:0,mens:300,rend:6,anni:15,ter:0.2},
-  obiettivi:[], regole:[], fisse:[]
+  obiettivi:[], regole:[], fisse:[],
+  /* le installazioni nuove nascono già migrate: la conversione da comm/abb
+     deve scattare solo sui dati salvati dalla versione precedente */
+  fisseMigrate:true
 };
 
 /* migra i vecchi campi "commercialista" e "abbonamenti" nel registro spese fisse */
