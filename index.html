@@ -242,17 +242,31 @@ hr{border:0;border-top:1px solid var(--line);margin:14px 0}
       <div><label>Nome</label><input id="fxNome" placeholder="Affitto studio"></div>
       <div class="narrow"><label>Importo €</label><input type="number" step="0.01" id="fxImp" placeholder="0,00"></div>
       <div class="narrow"><label>Frequenza</label><select id="fxFreq"></select></div>
+      <div class="narrow"><label>Giorno del mese</label><input type="number" min="1" max="31" step="1" id="fxGiorno" value="1"></div>
       <div><label>Parola chiave per il riconoscimento</label><input id="fxKey" placeholder="lascia vuoto per usare il nome"></div>
+      <div class="narrow"><label>Conto</label><select id="fxConto"></select></div>
       <div class="narrow"><label>Attiva da</label><input type="month" id="fxInizio"></div>
       <div style="flex:0"><button class="btn" id="fxAdd">Aggiungi</button></div>
     </div>
-    <div class="hint">La <b>parola chiave</b> è ciò che l'app cerca nella descrizione dei movimenti per spuntare la spesa da sola. Per Netflix scrivi <code>netflix</code>, per l'affitto <code>affitto</code> o il nome del proprietario che compare nel bonifico. Il riconoscimento accetta uno scarto del 15% sull'importo, così le bollette variabili funzionano lo stesso.</div>
+    <div class="row" style="margin-top:10px">
+      <div style="flex:0"><label style="display:flex;align-items:center;gap:8px;text-transform:none;font-size:13px;letter-spacing:0;white-space:nowrap">
+        <input type="checkbox" id="fxAuto" style="width:auto"> Inserisci automaticamente in <b>Uscite</b> alla scadenza
+      </label></div>
+    </div>
+    <div class="hint">La <b>parola chiave</b> è ciò che l'app cerca nella descrizione dei movimenti per spuntare la spesa da sola. Per Netflix scrivi <code>netflix</code>, per l'affitto <code>affitto</code> o il nome del proprietario che compare nel bonifico. Il riconoscimento accetta uno scarto del 15% sull'importo, così le bollette variabili funzionano lo stesso.<br>
+    Con l'<b>inserimento automatico</b> la spesa compare fra le uscite il giorno indicato, senza aspettare l'estratto conto. Se poi importi il CSV e il movimento vero corrisponde, sostituisce quello generato: non finisce mai due volte.</div>
+  </div>
+
+  <div class="card">
+    <h2>Calendario di <span id="fxCalMese"></span></h2>
+    <div id="fxCal"></div>
+    <div class="hint">I giorni evidenziati sono quelli in cui ricorre una spesa fissa. <span class="pill" style="background:var(--green-soft);color:var(--green)">verde</span> già pagata, <span class="pill" style="background:#fdf6e8;color:#7a5c14">ambra</span> in attesa.</div>
   </div>
 
   <div class="card">
     <h2>Situazione di <span id="fxMese"></span></h2>
     <div class="tw"><table>
-      <thead><tr><th>Spesa</th><th class="num">Importo</th><th>Frequenza</th><th class="num">Quota mese</th><th>Stato</th><th></th></tr></thead>
+      <thead><tr><th>Spesa</th><th class="num">Importo</th><th>Frequenza</th><th class="num">Giorno</th><th class="num">Quota mese</th><th>Auto</th><th>Stato</th><th></th></tr></thead>
       <tbody id="tbFisse"></tbody></table></div>
     <div class="hint">La quota mensile viene tolta dalle entrate <b>prima</b> di distribuire sui 5 conti. Quando il movimento vero arriva e viene riconosciuto, non pesa una seconda volta sul budget: è già stato accantonato.</div>
   </div>
@@ -736,6 +750,64 @@ function scadeNelMese(f,y,m){
   const d=mesiTra(iy,im-1,y,m);
   return d>=0 && d%(+f.freq||1)===0;
 }
+/* giorno del mese, adattato ai mesi corti: il 31 diventa il 28 a febbraio */
+function giornoValido(g,y,m){
+  const ultimo=new Date(y,m+1,0).getDate();
+  return Math.min(Math.max(1,+g||1), ultimo);
+}
+function dataScadenza(f,y,m){
+  const g=giornoValido(f.giorno,y,m);
+  return `${y}-${String(m+1).padStart(2,'0')}-${String(g).padStart(2,'0')}`;
+}
+/* una uscita corrisponde a questa spesa fissa? (per descrizione e importo) */
+function corrisponde(f,desc,imp){
+  const kw=String(f.key||f.nome||'').toLowerCase().trim();
+  if(!kw) return false;
+  const toll=Math.max(2,(+f.importo)*0.15);
+  return (' '+String(desc||'').toLowerCase()).includes(kw) && Math.abs(imp-(+f.importo))<=toll;
+}
+
+/* Genera come uscite reali le spese fisse con l'opzione automatica attiva.
+   Crea solo scadenze già passate: il futuro resta previsione, non movimento. */
+function generaFisseAuto(){
+  const oggi=new Date(); let creati=0;
+  (D.fisse||[]).forEach(f=>{
+    if(!f.auto || f.attiva===false) return;
+    const [iy,im]=(f.inizio||'2020-01').split('-').map(Number);
+    let y=iy, m=im-1;
+    let guardia=0;
+    while((y<oggi.getFullYear() || (y===oggi.getFullYear() && m<=oggi.getMonth())) && guardia++<600){
+      if(scadeNelMese(f,y,m) && fisseAttive(y,m).some(x=>x.id===f.id)){
+        const data=dataScadenza(f,y,m);
+        const giaPresente=D.uscite.some(u=>u.fissaId===f.id && u.data.slice(0,7)===data.slice(0,7));
+        if(!giaPresente && new Date(data)<=oggi){
+          D.uscite.push({id:uid(),data,importo:+f.importo,desc:f.nome,
+            conto:f.conto||'Necessità',fissaId:f.id,auto:true});
+          creati++;
+        }
+      }
+      m++; if(m>11){m=0;y++;}
+    }
+  });
+  return creati;
+}
+/* rimuove i segnaposto generati e mai riconciliati (usato quando disattivi l'opzione) */
+function rimuoviSegnaposto(id){
+  const prima=D.uscite.length;
+  D.uscite=D.uscite.filter(u=>!(u.fissaId===id && u.auto));
+  return prima-D.uscite.length;
+}
+/* un movimento importato corrisponde a un segnaposto? allora lo sostituisce, non si aggiunge */
+function riconcilia(data,imp,desc){
+  const [y,m]=ym(data);
+  for(const f of fisseAttive(y,m)){
+    if(!scadeNelMese(f,y,m) || !corrisponde(f,desc,imp)) continue;
+    const seg=D.uscite.find(u=>u.fissaId===f.id && u.auto && u.data.slice(0,7)===data.slice(0,7));
+    if(seg){ seg.data=data; seg.importo=imp; seg.desc=desc; seg.auto=false; return f.nome; }
+  }
+  return null;
+}
+
 /* riconosce, fra le uscite del mese, quella che corrisponde a ogni spesa fissa in scadenza */
 function matchFisse(y,m){
   const U=uscMese(y,m);
@@ -744,14 +816,14 @@ function matchFisse(y,m){
     const dovuta=scadeNelMese(f,y,m);
     let trovata=null;
     if(dovuta){
-      const kw=String(f.key||f.nome||'').toLowerCase().trim();
-      const toll=Math.max(2,(+f.importo)*0.15);
-      const u=U.find(x=>!usate.has(x.id)
-        && kw && (' '+String(x.desc||'').toLowerCase()).includes(kw)
-        && Math.abs(x.importo-(+f.importo))<=toll);
-      if(u){usate.add(u.id); trovata=u;}
+      // 1) collegamento diretto: uscita generata o già riconciliata
+      trovata=U.find(x=>x.fissaId===f.id && !usate.has(x.id))||null;
+      // 2) altrimenti riconoscimento per parola chiave e importo
+      if(!trovata) trovata=U.find(x=>!usate.has(x.id) && !x.fissaId && corrisponde(f,x.desc,x.importo))||null;
+      if(trovata) usate.add(trovata.id);
     }
-    return {f,dovuta,pagata:!!trovata,uscita:trovata,quota:quotaMensile(f)};
+    return {f,dovuta,pagata:!!trovata,uscita:trovata,quota:quotaMensile(f),
+            segnaposto: !!(trovata && trovata.auto)};
   });
   return {righe, idsRiconosciuti:usate};
 }
@@ -892,7 +964,8 @@ function renderUsc(){
     const i=D.set.conti.findIndex(c=>c.n===e.conto);
     const col=i>=0?COLORS[i%7]:'#9a9a94';
     tb.insertAdjacentHTML('beforeend',`<tr>
-      <td>${new Date(e.data).toLocaleDateString('it-IT')}</td><td>${esc(e.desc)}</td>
+      <td>${new Date(e.data).toLocaleDateString('it-IT')}</td>
+      <td>${esc(e.desc)}${e.fissaId?` <span class="pill" style="background:${e.auto?'var(--blue-soft);color:var(--blue)':'var(--green-soft);color:var(--green)'}">${e.auto?'spesa fissa':'fissa confermata'}</span>`:''}</td>
       <td><span class="pill" style="background:${col}22;color:${col}">${esc(e.conto)}</span></td>
       <td class="num neg" style="font-weight:600">${eur(e.importo)}</td>
       <td><button class="del" data-du="${e.id}">×</button></td></tr>`);
@@ -1084,22 +1157,65 @@ function renderFisse(){
   const M=mesePanel(curY,curM);
   if(M.totE>0 && quota/M.totE>0.5) al.insertAdjacentHTML('beforeend',`<div class="alert warn">Le spese fisse assorbono il <b>${pct(quota/M.totE*100)}</b> delle entrate di questo mese. Sopra il 50% resta poco margine per imprevisti e accumulo.</div>`);
 
+  const cs=document.getElementById('fxConto');
+  if(!cs.options.length) cs.innerHTML=[...D.set.conti.map(c=>c.n),...CONTI_FISSI].map(n=>`<option>${esc(n)}</option>`).join('');
+
   const tb=document.getElementById('tbFisse'); tb.innerHTML='';
-  if(!MF.righe.length) tb.innerHTML='<tr><td colspan="6" class="empty">Nessuna spesa fissa. Aggiungine una qui sopra.</td></tr>';
+  if(!MF.righe.length) tb.innerHTML='<tr><td colspan="8" class="empty">Nessuna spesa fissa. Aggiungine una qui sopra.</td></tr>';
   MF.righe.forEach(r=>{
     const i=(D.fisse||[]).findIndex(x=>x.id===r.f.id);
     let stato;
     if(!r.dovuta) stato='<span class="pill" style="background:#f0f0ec;color:#666">non in scadenza</span>';
+    else if(r.segnaposto) stato=`<span class="pill" style="background:var(--blue-soft);color:var(--blue)">inserita il ${new Date(r.uscita.data).toLocaleDateString('it-IT')}</span>`;
     else if(r.pagata) stato=`<span class="pill" style="background:var(--green-soft);color:var(--green)">pagata ${new Date(r.uscita.data).toLocaleDateString('it-IT')}</span>`;
     else stato='<span class="pill" style="background:#fdf6e8;color:#7a5c14">in attesa</span>';
     tb.insertAdjacentHTML('beforeend',`<tr>
       <td><b>${esc(r.f.nome)}</b>${r.f.key?`<br><span style="color:var(--muted);font-size:11.5px">riconosce «${esc(r.f.key)}»</span>`:''}</td>
       <td class="num">${eur(+r.f.importo)}</td>
       <td>${FREQ[r.f.freq]||'Mensile'}</td>
+      <td class="num">${giornoValido(r.f.giorno,curY,curM)}</td>
       <td class="num acc">${eur(r.quota)}</td>
+      <td><input type="checkbox" data-fxa="${i}" ${r.f.auto?'checked':''} style="width:auto" title="Inserisci automaticamente in Uscite"></td>
       <td>${stato}</td>
       <td><button class="del" data-fxd="${i}">×</button></td></tr>`);
   });
+
+  renderCalendario(MF);
+}
+
+function renderCalendario(MF){
+  document.getElementById('fxCalMese').textContent=MESI[curM]+' '+curY;
+  const primo=new Date(curY,curM,1);
+  const off=(primo.getDay()+6)%7;               // lunedì = 0
+  const ultimo=new Date(curY,curM+1,0).getDate();
+  const oggi=new Date();
+  const perGiorno={};
+  MF.righe.filter(r=>r.dovuta).forEach(r=>{
+    const g=r.uscita ? new Date(r.uscita.data).getDate() : giornoValido(r.f.giorno,curY,curM);
+    (perGiorno[g]=perGiorno[g]||[]).push(r);
+  });
+  let html='<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">';
+  ['L','M','M','G','V','S','D'].forEach(d=>html+=`<div style="text-align:center;font-size:10.5px;font-weight:640;color:var(--muted);padding:2px 0">${d}</div>`);
+  for(let i=0;i<off;i++) html+='<div></div>';
+  for(let g=1;g<=ultimo;g++){
+    const rs=perGiorno[g]||[];
+    const oggiQ = oggi.getFullYear()===curY && oggi.getMonth()===curM && oggi.getDate()===g;
+    let bg='transparent', col='var(--ink)', bordo='1px solid var(--line)';
+    if(rs.length){
+      const tuttePagate=rs.every(r=>r.pagata);
+      bg = tuttePagate ? 'var(--green-soft)' : '#fdf6e8';
+      col = tuttePagate ? 'var(--green)' : '#7a5c14';
+      bordo = '1px solid '+(tuttePagate?'#c5e2d3':'#e8d9b0');
+    }
+    const tot=rs.reduce((s,r)=>s+ +r.f.importo,0);
+    const titolo=rs.map(r=>r.f.nome+' '+eur0(+r.f.importo)).join(' · ');
+    html+=`<div title="${esc(titolo)}" style="border:${bordo};border-radius:7px;padding:5px 4px;min-height:46px;background:${bg};${oggiQ?'outline:2px solid var(--accent);outline-offset:-2px;':''}">
+      <div style="font-size:11.5px;font-weight:${oggiQ?'700':'560'};color:${col}">${g}</div>
+      ${rs.length?`<div style="font-size:10px;color:${col};font-weight:600;line-height:1.25">${eur0(tot)}</div>`:''}
+    </div>`;
+  }
+  html+='</div>';
+  document.getElementById('fxCal').innerHTML=html;
 }
 
 function renderSet(){
@@ -1371,8 +1487,14 @@ document.getElementById('impConfirm').onclick=()=>{
   if(noCat.length){alert(`${noCat.length} movimenti non hanno una categoria. Assegnala o deselezionali.`);return}
   if(!s.length){alert('Nessun movimento selezionato.');return}
   if(!confirm(`Importare ${s.length} movimenti?`))return;
+  let riconciliati=[];
   s.forEach(p=>{
-    if(p.uscita) D.uscite.push({id:uid(),data:p.data,importo:p.imp,desc:p.desc,conto:p.dest});
+    if(p.uscita){
+      // se esiste già un movimento generato per la stessa spesa fissa, lo sostituisce
+      const nome=riconcilia(p.data,p.imp,p.desc);
+      if(nome){riconciliati.push(nome); return;}
+      D.uscite.push({id:uid(),data:p.data,importo:p.imp,desc:p.desc,conto:p.dest});
+    }
     else D.entrate.push({id:uid(),data:p.data,importo:p.imp,desc:p.desc,cliente:'',tipo:p.dest==='__fatturato'?'fatturato':'altro'});
   });
   save();
@@ -1382,7 +1504,8 @@ document.getElementById('impConfirm').onclick=()=>{
   document.getElementById('impPrevCard').style.display='none';
   document.getElementById('impMapCard').style.display='none';
   document.getElementById('impText').value='';
-  document.getElementById('impStatus').innerHTML=`<b style="color:var(--green)">${s.length} movimenti importati.</b> Trovi tutto nelle schede Entrate e Uscite.`;
+  document.getElementById('impStatus').innerHTML=`<b style="color:var(--green)">${s.length} movimenti importati.</b> Trovi tutto nelle schede Entrate e Uscite.`
+    + (riconciliati.length?`<br><span style="color:var(--blue)">${riconciliati.length} corrispondevano a spese fisse già inserite (${esc(riconciliati.join(', '))}): sostituite invece che duplicate.</span>`:'');
 };
 
 /* regole */
@@ -1463,11 +1586,16 @@ document.getElementById('fxAdd').onclick=()=>{
   D.fisse=D.fisse||[];
   D.fisse.push({id:uid(),nome:n,importo:imp,
     freq:+document.getElementById('fxFreq').value||1,
+    giorno:+document.getElementById('fxGiorno').value||1,
+    conto:document.getElementById('fxConto').value||'Necessità',
+    auto:document.getElementById('fxAuto').checked,
     key:(document.getElementById('fxKey').value.trim()||n).toLowerCase(),
     inizio:document.getElementById('fxInizio').value||new Date().toISOString().slice(0,7),
     attiva:true});
+  const creati=generaFisseAuto();
   document.getElementById('fxNome').value='';document.getElementById('fxImp').value='';document.getElementById('fxKey').value='';
   renderAll();
+  if(creati) alert(`Aggiunta. Ho inserito ${creati} ${creati===1?'movimento':'movimenti'} in Uscite per le scadenze già passate.`);
 };
 document.getElementById('obAdd').onclick=()=>{
   const n=document.getElementById('obNome').value.trim(), t=parseFloat(document.getElementById('obTarget').value), d=document.getElementById('obData').value;
@@ -1483,7 +1611,7 @@ document.body.addEventListener('click',e=>{
   if(t.dataset.du){D.uscite=D.uscite.filter(x=>x.id!==t.dataset.du);renderAll()}
   if(t.dataset.do!==undefined&&t.classList.contains('del')){D.obiettivi.splice(+t.dataset.do,1);renderAll()}
   if(t.dataset.rd!==undefined){D.regole.splice(+t.dataset.rd,1);save();renderRegole()}
-  if(t.dataset.fxd!==undefined){D.fisse.splice(+t.dataset.fxd,1);renderAll()}
+  if(t.dataset.fxd!==undefined){const f=D.fisse[+t.dataset.fxd]; if(f)rimuoviSegnaposto(f.id); D.fisse.splice(+t.dataset.fxd,1);renderAll()}
   if(t.dataset.ir!==undefined){
     const p=PREV[+t.dataset.ir];
     if(p.dest.startsWith('__')){alert('Assegna prima un conto a questo movimento.');return}
@@ -1512,6 +1640,12 @@ document.body.addEventListener('change',e=>{
     riepilogo();
   }
   if(t.dataset.ic!==undefined){const p=PREV[+t.dataset.ic];if(p){p.sel=t.checked;riepilogo()}}
+  if(t.dataset.fxa!==undefined){
+    const f=D.fisse[+t.dataset.fxa]; if(!f)return;
+    f.auto=t.checked;
+    if(f.auto){const n=generaFisseAuto(); renderAll(); if(n) alert(`Inseriti ${n} movimenti in Uscite per le scadenze già passate.`);}
+    else {const n=rimuoviSegnaposto(f.id); renderAll(); if(n) alert(`Rimossi ${n} movimenti generati e mai confermati. Quelli riconciliati con l'estratto conto restano.`);}
+  }
 });
 ['entFiltro'].forEach(i=>document.getElementById(i).onchange=renderEnt);
 ['uscFiltro','uscConto'].forEach(i=>document.getElementById(i).onchange=renderUsc);
@@ -1622,6 +1756,7 @@ document.getElementById('btnDemo').onclick=()=>{
   renderAll();
 };
 
+generaFisseAuto();
 fillSelects(); renderAll(); renderRegole();
 if(!D.set.setupDone){document.getElementById('wiz').style.display='';wizInit()}
 /* registra il service worker solo se il file esiste (versione multi-file).
