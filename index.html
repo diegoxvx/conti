@@ -113,6 +113,7 @@ hr{border:0;border-top:1px solid var(--line);margin:14px 0}
   <button data-p="dash" class="on">Dashboard</button>
   <button data-p="ent">Entrate</button>
   <button data-p="usc">Uscite</button>
+  <button data-p="fisse">Fisse</button>
   <button data-p="fisco">Fisco</button>
   <button data-p="acc">Accumulo</button>
   <button data-p="imp">Importa</button>
@@ -158,8 +159,8 @@ hr{border:0;border-top:1px solid var(--line);margin:14px 0}
       <div>
         <h3>Accantonamenti</h3>
         <div class="dl"><span>Imposta sostitutiva + INPS</span><b id="rTax">€0</b></div>
-        <div class="dl"><span>Commercialista</span><b id="rComm">€0</b></div>
-        <div class="dl"><span>Abbonamenti / costi fissi</span><b id="rAbb">€0</b></div>
+        <div class="dl"><span>Spese fisse (quota del mese)</span><b id="rComm">€0</b></div>
+        <div class="dl"><span>Spese fisse già pagate</span><b id="rAbb">0 su 0</b></div>
         <div class="dl"><span>Totale accantonamenti</span><b class="acc" id="rTotAcc">€0</b></div>
         <div class="dl"><span>Totale da distribuire</span><b class="big" id="rDistr">€0</b></div>
       </div>
@@ -222,6 +223,38 @@ hr{border:0;border-top:1px solid var(--line);margin:14px 0}
     <div class="flexbtw" style="margin-top:10px;font-weight:620">
       <span>Totale visualizzato</span><span class="mono" id="uscTot">€0</span>
     </div>
+  </div>
+</section>
+
+<!-- ============ SPESE FISSE ============ -->
+<section class="panel" id="p-fisse">
+  <div class="grid g3" style="margin-bottom:14px">
+    <div class="kpi"><div class="lab">Quota mensile totale</div><div class="val acc" id="fxQuota">€0</div><div class="note" id="fxQuotaN"></div></div>
+    <div class="kpi"><div class="lab">In scadenza questo mese</div><div class="val" id="fxDovute">€0</div><div class="note" id="fxDovuteN"></div></div>
+    <div class="kpi"><div class="lab">Costo annuo</div><div class="val" id="fxAnno">€0</div><div class="note">somma di tutte le spese fisse</div></div>
+  </div>
+
+  <div id="fxAlerts"></div>
+
+  <div class="card">
+    <h2>Aggiungi una spesa fissa</h2>
+    <div class="row">
+      <div><label>Nome</label><input id="fxNome" placeholder="Affitto studio"></div>
+      <div class="narrow"><label>Importo €</label><input type="number" step="0.01" id="fxImp" placeholder="0,00"></div>
+      <div class="narrow"><label>Frequenza</label><select id="fxFreq"></select></div>
+      <div><label>Parola chiave per il riconoscimento</label><input id="fxKey" placeholder="lascia vuoto per usare il nome"></div>
+      <div class="narrow"><label>Attiva da</label><input type="month" id="fxInizio"></div>
+      <div style="flex:0"><button class="btn" id="fxAdd">Aggiungi</button></div>
+    </div>
+    <div class="hint">La <b>parola chiave</b> è ciò che l'app cerca nella descrizione dei movimenti per spuntare la spesa da sola. Per Netflix scrivi <code>netflix</code>, per l'affitto <code>affitto</code> o il nome del proprietario che compare nel bonifico. Il riconoscimento accetta uno scarto del 15% sull'importo, così le bollette variabili funzionano lo stesso.</div>
+  </div>
+
+  <div class="card">
+    <h2>Situazione di <span id="fxMese"></span></h2>
+    <div class="tw"><table>
+      <thead><tr><th>Spesa</th><th class="num">Importo</th><th>Frequenza</th><th class="num">Quota mese</th><th>Stato</th><th></th></tr></thead>
+      <tbody id="tbFisse"></tbody></table></div>
+    <div class="hint">La quota mensile viene tolta dalle entrate <b>prima</b> di distribuire sui 5 conti. Quando il movimento vero arriva e viene riconosciuto, non pesa una seconda volta sul budget: è già stato accantonato.</div>
   </div>
 </section>
 
@@ -437,10 +470,10 @@ hr{border:0;border-top:1px solid var(--line);margin:14px 0}
     </div>
     <div class="row" style="margin-top:11px">
       <div><label>% accantonamento tasse su ogni entrata</label><input type="number" step="0.5" id="sAccant"></div>
-      <div><label>Accantonamento commercialista / mese €</label><input type="number" step="10" id="sComm"></div>
-      <div><label>Accantonamento abbonamenti / mese €</label><input type="number" step="10" id="sAbb"></div>
       <div style="flex:0;align-self:flex-end"><button class="btn ghost sm" id="sAuto">Usa % consigliata</button></div>
+      <div style="flex:2"><div class="hint" style="margin:0">Le spese fisse (commercialista, abbonamenti, affitto, assicurazioni…) si gestiscono ora dalla scheda <b>Fisse</b>, dove ognuna ha la propria frequenza e viene spuntata da sola quando il movimento arriva.</div></div>
     </div>
+    <input type="hidden" id="sComm"><input type="hidden" id="sAbb">
     <div class="hint" id="sHint"></div>
   </div>
 
@@ -556,8 +589,22 @@ const DEFAULTS={
        conti:[{n:'Necessità',p:60},{n:'Svago',p:10},{n:'Formazione',p:10},{n:'Libertà Finanziaria',p:10},{n:'Spese a Lungo Termine',p:10}]},
   fe:{saldo:0,mesi:6,spesa:1500,vers:200},
   pac:{cap:0,mens:300,rend:6,anni:15,ter:0.2},
-  obiettivi:[], regole:[]
+  obiettivi:[], regole:[], fisse:[]
 };
+
+/* migra i vecchi campi "commercialista" e "abbonamenti" nel registro spese fisse */
+function migraFisse(p){
+  if(p.fisseMigrate) return p;
+  p.fisse=p.fisse||[];
+  const oggi=new Date(), mese=oggi.getFullYear()+'-'+String(oggi.getMonth()+1).padStart(2,'0');
+  const s=p.set||{};
+  if(+s.comm>0 && !p.fisse.some(f=>f.nome==='Commercialista'))
+    p.fisse.push({id:'mig1',nome:'Commercialista',importo:+s.comm,freq:1,key:'commercialista',inizio:mese,attiva:true});
+  if(+s.abb>0 && !p.fisse.some(f=>f.nome==='Abbonamenti'))
+    p.fisse.push({id:'mig2',nome:'Abbonamenti',importo:+s.abb,freq:1,key:'abbonamento',inizio:mese,attiva:true});
+  p.fisseMigrate=true;
+  return p;
+}
 
 /* regole predefinite: parola chiave -> conto */
 const RULES=[
@@ -582,7 +629,7 @@ const charts={};
 
 function load(){
   try{const r=localStorage.getItem(KEY); if(!r) return clone(DEFAULTS);
-    const p=JSON.parse(r); return {...clone(DEFAULTS),...p,set:{...DEFAULTS.set,...(p.set||{})},fe:{...DEFAULTS.fe,...(p.fe||{})},pac:{...DEFAULTS.pac,...(p.pac||{})}};
+    const p=migraFisse(JSON.parse(r)); return {...clone(DEFAULTS),...p,set:{...DEFAULTS.set,...(p.set||{})},fe:{...DEFAULTS.fe,...(p.fe||{})},pac:{...DEFAULTS.pac,...(p.pac||{})}};
   }catch(e){return clone(DEFAULTS)}
 }
 function save(){try{localStorage.setItem(KEY,JSON.stringify(D))}catch(e){}}
@@ -661,23 +708,72 @@ const entMese=(y,m)=>D.entrate.filter(e=>{const[a,b]=ym(e.data);return a===y&&b=
 const uscMese=(y,m)=>D.uscite.filter(e=>{const[a,b]=ym(e.data);return a===y&&b===m});
 const fattAnno=y=>D.entrate.filter(e=>e.tipo==='fatturato'&&ym(e.data)[0]===y).reduce((s,e)=>s+e.importo,0);
 
+/* ---------- SPESE FISSE ----------
+   Ogni spesa fissa ha una quota mensile (importo/frequenza): una polizza annuale
+   da 600 € pesa 50 € ogni mese, così alla scadenza la trovi già coperta.
+   Le spese fisse escono dal totale da distribuire PRIMA dei 5 conti, quindi il
+   movimento reale, quando arriva, non deve pesare una seconda volta sul budget:
+   per questo le uscite riconosciute vengono escluse dai conti. */
+const FREQ={1:'Mensile',2:'Bimestrale',3:'Trimestrale',6:'Semestrale',12:'Annuale'};
+const quotaMensile=f=>(+f.importo||0)/(+f.freq||1);
+const mesiTra=(y1,m1,y2,m2)=>(y2-y1)*12+(m2-m1);
+
+function fisseAttive(y,m){
+  return (D.fisse||[]).filter(f=>{
+    if(f.attiva===false) return false;
+    const [iy,im]=(f.inizio||'2020-01').split('-').map(Number);
+    if(mesiTra(iy,im-1,y,m)<0) return false;
+    if(f.fine){const [fy,fm]=f.fine.split('-').map(Number); if(mesiTra(fy,fm-1,y,m)>0) return false;}
+    return true;
+  });
+}
+/* è in scadenza questo mese? (allineata al mese di inizio) */
+function scadeNelMese(f,y,m){
+  const [iy,im]=(f.inizio||'2020-01').split('-').map(Number);
+  const d=mesiTra(iy,im-1,y,m);
+  return d>=0 && d%(+f.freq||1)===0;
+}
+/* riconosce, fra le uscite del mese, quella che corrisponde a ogni spesa fissa in scadenza */
+function matchFisse(y,m){
+  const U=uscMese(y,m);
+  const usate=new Set();
+  const righe=fisseAttive(y,m).map(f=>{
+    const dovuta=scadeNelMese(f,y,m);
+    let trovata=null;
+    if(dovuta){
+      const kw=String(f.key||f.nome||'').toLowerCase().trim();
+      const toll=Math.max(2,(+f.importo)*0.15);
+      const u=U.find(x=>!usate.has(x.id)
+        && kw && (' '+String(x.desc||'').toLowerCase()).includes(kw)
+        && Math.abs(x.importo-(+f.importo))<=toll);
+      if(u){usate.add(u.id); trovata=u;}
+    }
+    return {f,dovuta,pagata:!!trovata,uscita:trovata,quota:quotaMensile(f)};
+  });
+  return {righe, idsRiconosciuti:usate};
+}
+
 function mesePanel(y,m){
   const E=entMese(y,m), U=uscMese(y,m);
   const totE=E.reduce((s,x)=>s+x.importo,0);
   const totU=U.reduce((s,x)=>s+x.importo,0);
   const fatt=E.filter(x=>x.tipo==='fatturato').reduce((s,x)=>s+x.importo,0);
   const accTax=fatt*D.set.accant/100;
-  const accTot=accTax+ +D.set.comm + +D.set.abb;
+  const MF=matchFisse(y,m);
+  const quotaFisse=MF.righe.reduce((s,r)=>s+r.quota,0);
+  const accTot=accTax+quotaFisse;
   const distr=Math.max(0,totE-accTot);
   const spesePerConto={};
   D.set.conti.forEach(c=>spesePerConto[c.n]=0);
   CONTI_FISSI.forEach(c=>spesePerConto[c]=0);
-  U.forEach(u=>{spesePerConto[u.conto]=(spesePerConto[u.conto]||0)+u.importo});
-  return {E,U,totE,totU,fatt,accTax,accTot,distr,spesePerConto};
+  // le uscite già coperte da una spesa fissa non consumano il budget dei conti
+  U.forEach(u=>{ if(!MF.idsRiconosciuti.has(u.id)) spesePerConto[u.conto]=(spesePerConto[u.conto]||0)+u.importo; });
+  const fissePagate=MF.righe.filter(r=>r.pagata).reduce((s,r)=>s+r.uscita.importo,0);
+  return {E,U,totE,totU,fatt,accTax,accTot,distr,spesePerConto,MF,quotaFisse,fissePagate};
 }
 
 /* ---------- RENDER ---------- */
-function renderAll(){renderDash();renderEnt();renderUsc();renderFisco();renderAcc();renderSet();save()}
+function renderAll(){renderDash();renderEnt();renderUsc();renderFisse();renderFisco();renderAcc();renderSet();save()}
 
 function renderDash(){
   const M=mesePanel(curY,curM);
@@ -686,7 +782,7 @@ function renderDash(){
   document.getElementById('kUsc').textContent=eur0(M.totU);
   document.getElementById('kUscN').textContent=M.totE>0?pct(M.totU/M.totE*100)+' delle entrate':'—';
   document.getElementById('kAcc').textContent=eur0(M.accTot);
-  document.getElementById('kAccN').textContent=`tasse ${eur0(M.accTax)} + fissi ${eur0(+D.set.comm + +D.set.abb)}`;
+  document.getElementById('kAccN').textContent=`tasse ${eur0(M.accTax)} + spese fisse ${eur0(M.quotaFisse)}`;
   const net=M.totE-M.totU-M.accTot;
   const kn=document.getElementById('kNet');
   kn.textContent=eur0(net); kn.className='val '+(net>=0?'pos':'neg');
@@ -697,8 +793,8 @@ function renderDash(){
   const ris=M.totE-M.totU;
   const rr=document.getElementById('rRis'); rr.textContent=eur(ris); rr.className=ris>=0?'pos':'neg';
   document.getElementById('rTax').textContent=eur(M.accTax);
-  document.getElementById('rComm').textContent=eur(+D.set.comm);
-  document.getElementById('rAbb').textContent=eur(+D.set.abb);
+  document.getElementById('rComm').textContent=eur(M.quotaFisse);
+  document.getElementById('rAbb').textContent=`${M.MF.righe.filter(r=>r.pagata).length} su ${M.MF.righe.filter(r=>r.dovuta).length}`;
   document.getElementById('rTotAcc').textContent=eur(M.accTot);
   document.getElementById('rDistr').textContent=eur(M.distr);
   document.getElementById('distrSub').textContent=`Totale da distribuire: ${eur(M.distr)}`;
@@ -957,6 +1053,50 @@ function renderAcc(){
   document.getElementById('aMens').textContent=eur0(mensTot);
   document.getElementById('aMensN').textContent=`emergenza ${eur0(D.fe.vers)} + PAC ${eur0(D.pac.mens)}`;
   document.getElementById('aFisc').textContent=eur0(fattAnno(curY)*D.set.accant/100);
+}
+
+function renderFisse(){
+  const fs=document.getElementById('fxFreq');
+  if(!fs.options.length) fs.innerHTML=Object.entries(FREQ).map(([k,v])=>`<option value="${k}">${v}</option>`).join('');
+  if(!document.getElementById('fxInizio').value)
+    document.getElementById('fxInizio').value=new Date().toISOString().slice(0,7);
+  document.getElementById('fxMese').textContent=MESI[curM]+' '+curY;
+
+  const MF=matchFisse(curY,curM);
+  const quota=MF.righe.reduce((s,r)=>s+r.quota,0);
+  const dovute=MF.righe.filter(r=>r.dovuta);
+  const pagate=MF.righe.filter(r=>r.pagata);
+  const annuo=(D.fisse||[]).filter(f=>f.attiva!==false).reduce((s,f)=>s+quotaMensile(f)*12,0);
+
+  document.getElementById('fxQuota').textContent=eur(quota);
+  document.getElementById('fxQuotaN').textContent=`${(D.fisse||[]).filter(f=>f.attiva!==false).length} spese attive`;
+  document.getElementById('fxDovute').textContent=eur(dovute.reduce((s,r)=>s+ +r.f.importo,0));
+  document.getElementById('fxDovuteN').textContent=`${pagate.length} su ${dovute.length} già pagate`;
+  document.getElementById('fxAnno').textContent=eur(annuo);
+
+  const al=document.getElementById('fxAlerts'); al.innerHTML='';
+  const manca=dovute.filter(r=>!r.pagata);
+  if(manca.length) al.insertAdjacentHTML('beforeend',`<div class="alert warn"><b>${manca.length} spese in attesa</b> questo mese: ${manca.map(r=>esc(r.f.nome)).join(', ')}. Per un totale di ${eur0(manca.reduce((s,r)=>s+ +r.f.importo,0))}.</div>`);
+  else if(dovute.length) al.insertAdjacentHTML('beforeend',`<div class="alert ok">Tutte le spese in scadenza di questo mese risultano pagate.</div>`);
+  const M=mesePanel(curY,curM);
+  if(M.totE>0 && quota/M.totE>0.5) al.insertAdjacentHTML('beforeend',`<div class="alert warn">Le spese fisse assorbono il <b>${pct(quota/M.totE*100)}</b> delle entrate di questo mese. Sopra il 50% resta poco margine per imprevisti e accumulo.</div>`);
+
+  const tb=document.getElementById('tbFisse'); tb.innerHTML='';
+  if(!MF.righe.length) tb.innerHTML='<tr><td colspan="6" class="empty">Nessuna spesa fissa. Aggiungine una qui sopra.</td></tr>';
+  MF.righe.forEach(r=>{
+    const i=(D.fisse||[]).findIndex(x=>x.id===r.f.id);
+    let stato;
+    if(!r.dovuta) stato='<span class="pill" style="background:#f0f0ec;color:#666">non in scadenza</span>';
+    else if(r.pagata) stato=`<span class="pill" style="background:var(--green-soft);color:var(--green)">pagata ${new Date(r.uscita.data).toLocaleDateString('it-IT')}</span>`;
+    else stato='<span class="pill" style="background:#fdf6e8;color:#7a5c14">in attesa</span>';
+    tb.insertAdjacentHTML('beforeend',`<tr>
+      <td><b>${esc(r.f.nome)}</b>${r.f.key?`<br><span style="color:var(--muted);font-size:11.5px">riconosce «${esc(r.f.key)}»</span>`:''}</td>
+      <td class="num">${eur(+r.f.importo)}</td>
+      <td>${FREQ[r.f.freq]||'Mensile'}</td>
+      <td class="num acc">${eur(r.quota)}</td>
+      <td>${stato}</td>
+      <td><button class="del" data-fxd="${i}">×</button></td></tr>`);
+  });
 }
 
 function renderSet(){
@@ -1313,6 +1453,19 @@ document.getElementById('uAdd').onclick=()=>{
   document.getElementById('uImp').value='';document.getElementById('uDesc').value='';
   renderAll();
 };
+document.getElementById('fxAdd').onclick=()=>{
+  const n=document.getElementById('fxNome').value.trim();
+  const imp=parseFloat(document.getElementById('fxImp').value);
+  if(!n||!imp||imp<=0){alert('Servono almeno nome e importo.');return}
+  D.fisse=D.fisse||[];
+  D.fisse.push({id:uid(),nome:n,importo:imp,
+    freq:+document.getElementById('fxFreq').value||1,
+    key:(document.getElementById('fxKey').value.trim()||n).toLowerCase(),
+    inizio:document.getElementById('fxInizio').value||new Date().toISOString().slice(0,7),
+    attiva:true});
+  document.getElementById('fxNome').value='';document.getElementById('fxImp').value='';document.getElementById('fxKey').value='';
+  renderAll();
+};
 document.getElementById('obAdd').onclick=()=>{
   const n=document.getElementById('obNome').value.trim(), t=parseFloat(document.getElementById('obTarget').value), d=document.getElementById('obData').value;
   if(!n||!t||!d){alert('Compila nome, importo e scadenza.');return}
@@ -1327,6 +1480,7 @@ document.body.addEventListener('click',e=>{
   if(t.dataset.du){D.uscite=D.uscite.filter(x=>x.id!==t.dataset.du);renderAll()}
   if(t.dataset.do!==undefined&&t.classList.contains('del')){D.obiettivi.splice(+t.dataset.do,1);renderAll()}
   if(t.dataset.rd!==undefined){D.regole.splice(+t.dataset.rd,1);save();renderRegole()}
+  if(t.dataset.fxd!==undefined){D.fisse.splice(+t.dataset.fxd,1);renderAll()}
   if(t.dataset.ir!==undefined){
     const p=PREV[+t.dataset.ir];
     if(p.dest.startsWith('__')){alert('Assegna prima un conto a questo movimento.');return}
