@@ -204,7 +204,17 @@ button.sm{height:var(--h-sm);padding:0 13px;font-size:12.5px;border-radius:9px}
 .row>div{min-width:0}
 .row>div>.btn{width:100%}
 .row .spacer{display:none}
-@media(max-width:560px){.row{grid-template-columns:minmax(0,1fr)}}
+/* riga di comandi dentro un'intestazione: resta in fila accanto al titolo,
+   ogni controllo largo quanto il suo testo e allineato sulla stessa base.
+   Resta una griglia: cosi' ignora i vecchi flex:0 scritti nell'HTML. */
+.rowcmd{flex:0 1 auto;grid-template-columns:none;
+  grid-auto-flow:column;grid-auto-columns:minmax(148px,auto);
+  gap:var(--s2);align-items:end}
+@media(max-width:560px){
+  .row{grid-template-columns:minmax(0,1fr)}
+  .rowcmd{flex:1 1 100%;width:100%;
+    grid-auto-flow:row;grid-auto-columns:auto;grid-template-columns:minmax(0,1fr)}
+}
 
 /* ---------- tabelle ---------- */
 table{width:100%;border-collapse:collapse;font-size:13px}
@@ -411,7 +421,7 @@ hr{border:0;border-top:1px solid var(--line);margin:var(--s4) 0}
   <div class="card">
     <div class="flexbtw" style="margin-bottom:10px">
       <h2 style="margin:0">Entrate — <span id="entMese"></span></h2>
-      <div class="row" style="flex:0">
+      <div class="row rowcmd">
         <div style="flex:0"><select id="entFiltro"><option value="mese">Solo mese selezionato</option><option value="anno">Tutto l'anno</option><option value="tutto">Tutte</option></select></div>
       </div>
     </div>
@@ -440,7 +450,7 @@ hr{border:0;border-top:1px solid var(--line);margin:var(--s4) 0}
   <div class="card">
     <div class="flexbtw" style="margin-bottom:10px">
       <h2 style="margin:0">Uscite — <span id="uscMese"></span></h2>
-      <div class="row" style="flex:0">
+      <div class="row rowcmd">
         <div style="flex:0"><select id="uscFiltro"><option value="mese">Solo mese selezionato</option><option value="anno">Tutto l'anno</option><option value="tutto">Tutte</option></select></div>
         <div style="flex:0"><select id="uscConto"><option value="">Tutti i conti</option></select></div>
         <div style="flex:0"><select id="uscCat"><option value="">Tutte le voci</option></select></div>
@@ -624,7 +634,7 @@ hr{border:0;border-top:1px solid var(--line);margin:var(--s4) 0}
   <div class="card">
     <div class="flexbtw" style="margin-bottom:10px">
       <div><h2 style="margin:0">1 · Carica l'estratto conto</h2><div class="sub">CSV da Revolut o da qualsiasi banca</div></div>
-      <div class="row" style="flex:0">
+      <div class="row rowcmd">
         <div style="flex:0"><button class="btn ghost sm" id="impFileBtn">Scegli file CSV</button></div>
         <div style="flex:0"><button class="btn ghost sm" id="impDemoBtn">Prova con esempio</button></div>
       </div>
@@ -660,7 +670,7 @@ hr{border:0;border-top:1px solid var(--line);margin:var(--s4) 0}
   <div class="card" id="impPrevCard" style="display:none">
     <div class="flexbtw" style="margin-bottom:10px">
       <div><h2 style="margin:0">3 · Rivedi e conferma</h2><div class="sub" id="impPrevSub"></div></div>
-      <div class="row" style="flex:0">
+      <div class="row rowcmd">
         <div style="flex:0"><button class="btn ghost sm" id="impAllOn">Seleziona tutto</button></div>
         <div style="flex:0"><button class="btn ghost sm" id="impAllOff">Deseleziona</button></div>
         <div style="flex:0"><button class="btn ghost sm" id="impHideDup">Nascondi duplicati</button></div>
