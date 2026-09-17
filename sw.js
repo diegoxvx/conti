@@ -1,7 +1,7 @@
 /* Service worker: rende l'app utilizzabile anche senza connessione.
    Pagina: network-first (gli aggiornamenti arrivano subito).
    Risorse statiche: cache-first. */
-const CACHE = 'conti-v5';
+const CACHE = 'conti-v6';
 const ASSETS = [
   './',
   './index.html',
